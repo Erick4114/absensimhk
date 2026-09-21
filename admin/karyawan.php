@@ -117,8 +117,8 @@ $rows = $pdo->query("SELECT * FROM users WHERE role='karyawan' ORDER BY aktif DE
   </form>
 </dialog>
 <script>
-  function openForm(d) {
-    const g = (i) => document.getElementById(i);
+  window.openForm = function (d) {
+    var g = function (i) { return document.getElementById(i); };
     g('f-id').value = d ? d.id : 0;
     g('f-nip').value = d ? d.nip : '';
     g('f-nama').value = d ? d.nama : '';
@@ -127,7 +127,9 @@ $rows = $pdo->query("SELECT * FROM users WHERE role='karyawan' ORDER BY aktif DE
     g('f-pass').required = !d;
     g('f-pass-hint').textContent = d ? '(kosongkan jika tidak diubah)' : '(min. 6 karakter)';
     g('f-title').textContent = d ? 'Ubah karyawan' : 'Tambah karyawan';
-    g('form-dlg').showModal();
-  }
+    var dialog = g('form-dlg');
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', 'open');
+  };
 </script>
 <?php require __DIR__ . '/../includes/admin_bottom.php'; ?>
