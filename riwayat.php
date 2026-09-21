@@ -10,7 +10,14 @@ $akhir = date('Y-m-t', strtotime($awal));
 $st = db()->prepare('SELECT * FROM absensi WHERE user_id = ? AND tanggal BETWEEN ? AND ? ORDER BY tanggal DESC');
 $st->execute([$user['id'], $awal, $akhir]);
 $rows = $st->fetchAll();
-$hadir = count($rows);
+$st = db()->prepare('SELECT *, jenis AS status FROM ketidakhadiran WHERE user_id = ? AND tanggal BETWEEN ? AND ?');
+$st->execute([$user['id'], $awal, $akhir]);
+$tidakHadir = $st->fetchAll();
+foreach ($tidakHadir as &$r) { $r['_tidak_hadir'] = true; }
+unset($r);
+$rows = array_merge($rows, $tidakHadir);
+usort($rows, fn($a, $b) => strcmp($b['tanggal'], $a['tanggal']));
+$hadir = count($rows) - count($tidakHadir);
 $telat = count(array_filter($rows, fn($r) => $r['status'] === 'terlambat'));
 
 $title = 'Riwayat';
@@ -44,6 +51,17 @@ require __DIR__ . '/includes/head.php';
         <div class="font-display font-bold"><?= e(tgl_id($r['tanggal'], true, true)) ?></div>
         <?= badge($r['status']) ?>
       </div>
+      <?php if (!empty($r['_tidak_hadir'])): ?>
+        <p class="mt-3 text-sm text-river-700"><?= e($r['keterangan']) ?></p>
+      <?php else: ?>
+      <div class="mt-2 flex flex-wrap gap-2">
+        <?php if (($r['jenis_kerja'] ?? 'kantor') === 'luar_kantor' || ($r['jenis_pulang'] ?? 'kantor') === 'luar_kantor'): ?><?= badge('luar_kantor') ?><?php endif; ?>
+        <?php if (!empty($r['lembur'])): ?><?= badge('lembur') ?><?php endif; ?>
+      </div>
+      <?php if (!empty($r['alasan_luar_kantor'])): ?><p class="mt-2 text-sm text-river-700"><?= e($r['alasan_luar_kantor']) ?></p><?php endif; ?>
+      <?php if (!empty($r['alasan_luar_pulang'])): ?><p class="mt-2 text-sm text-river-700">Pulang di luar kantor: <?= e($r['alasan_luar_pulang']) ?></p><?php endif; ?>
+      <?php if (!empty($r['keterangan_lembur'])): ?><p class="mt-2 text-sm text-river-700">Lembur: <?= e($r['keterangan_lembur']) ?></p><?php endif; ?>
+      <?php if (!empty($r['foto_lembur'])): ?><a href="<?= e(url($r['foto_lembur'])) ?>" target="_blank" class="mt-2 inline-block text-sm font-semibold text-river-600 hover:underline">Lihat lampiran lembur</a><?php endif; ?>
       <div class="mt-3 grid grid-cols-2 gap-3">
         <?php foreach (['masuk' => 'Masuk', 'pulang' => 'Pulang'] as $k => $lb): ?>
           <div class="flex items-center gap-3">
@@ -59,6 +77,7 @@ require __DIR__ . '/includes/head.php';
           </div>
         <?php endforeach; ?>
       </div>
+      <?php endif; ?>
     </article>
   <?php endforeach; ?>
 </main>

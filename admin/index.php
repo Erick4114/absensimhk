@@ -12,20 +12,28 @@ $st = $pdo->prepare("SELECT COUNT(*) total, SUM(status='terlambat') telat, SUM(j
 $st->execute([$hari]);
 $s = $st->fetch();
 $hadir = (int)$s['total']; $telat = (int)$s['telat']; $pulang = (int)$s['pulang'];
-$belum = max(0, $total - $hadir);
+$st = $pdo->prepare('SELECT COUNT(*) FROM ketidakhadiran WHERE tanggal=?');
+$st->execute([$hari]);
+$jumlahTidakHadir = (int)$st->fetchColumn();
+$belum = max(0, $total - $hadir - $jumlahTidakHadir);
 
 $st = $pdo->prepare("SELECT a.*, u.nama, u.jabatan FROM absensi a JOIN users u ON u.id = a.user_id WHERE a.tanggal = ? ORDER BY a.jam_masuk DESC");
 $st->execute([$hari]);
 $rows = $st->fetchAll();
 
-$st = $pdo->prepare("SELECT nama, jabatan FROM users WHERE role='karyawan' AND aktif=1 AND id NOT IN (SELECT user_id FROM absensi WHERE tanggal = ?) ORDER BY nama");
+$st = $pdo->prepare("SELECT k.*, u.nama, u.jabatan FROM ketidakhadiran k JOIN users u ON u.id=k.user_id WHERE k.tanggal=? ORDER BY k.created_at DESC");
 $st->execute([$hari]);
+$tidakHadir = $st->fetchAll();
+
+$st = $pdo->prepare("SELECT nama, jabatan FROM users WHERE role='karyawan' AND aktif=1 AND id NOT IN (SELECT user_id FROM absensi WHERE tanggal = ?) AND id NOT IN (SELECT user_id FROM ketidakhadiran WHERE tanggal = ?) ORDER BY nama");
+$st->execute([$hari, $hari]);
 $absen = $st->fetchAll();
 
 $cards = [
   ['Karyawan aktif', $total, 'text-river-900'],
   ['Sudah masuk', $hadir, 'text-river-600'],
   ['Terlambat', $telat, 'text-gold-600'],
+  ['Izin/sakit', $jumlahTidakHadir, 'text-gold-600'],
   ['Belum absen', $belum, 'text-clay-600'],
 ];
 ?>
@@ -34,7 +42,7 @@ $cards = [
   <p class="text-river-700"><?= e(tgl_id($hari)) ?> · jam masuk <?= jam($p['jam_masuk']) ?> (toleransi <?= (int)$p['toleransi_menit'] ?> menit)</p>
 </div>
 
-<section class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+<section class="grid grid-cols-2 gap-3 lg:grid-cols-5">
   <?php foreach ($cards as [$lb, $n, $c]): ?>
     <div class="rounded-2xl bg-white p-5 shadow-sm">
       <div class="text-sm text-river-700"><?= $lb ?></div>
@@ -66,14 +74,23 @@ $cards = [
                 <div><div class="font-semibold"><?= e($r['nama']) ?></div><div class="text-xs text-river-700"><?= e($r['jabatan']) ?></div></div>
               </div>
             </td>
-            <td class="px-3 py-3 font-semibold tabnum"><?= jam($r['jam_masuk']) ?></td>
-            <td class="px-3 py-3 tabnum"><?= jam($r['jam_pulang']) ?></td>
-            <td class="px-3 py-3"><?= badge($r['status']) ?></td>
+            <td class="px-3 py-3 font-semibold tabnum"><?= jam($r['jam_masuk']) ?><?php if ($r['lat_masuk']): ?><a href="<?= e('https://www.google.com/maps?q=' . $r['lat_masuk'] . ',' . $r['lng_masuk']) ?>" target="_blank" rel="noopener" class="mt-1 block text-xs text-river-600 hover:underline">📍 Buka peta masuk</a><?php endif; ?></td>
+            <td class="px-3 py-3 tabnum"><?= jam($r['jam_pulang']) ?><?php if ($r['lat_pulang']): ?><a href="<?= e('https://www.google.com/maps?q=' . $r['lat_pulang'] . ',' . $r['lng_pulang']) ?>" target="_blank" rel="noopener" class="mt-1 block text-xs font-semibold text-river-600 hover:underline">📍 Buka peta pulang</a><?php endif; ?></td>
+            <td class="px-3 py-3"><div class="flex flex-wrap gap-1"><?= badge($r['status']) ?><?php if ($r['jenis_kerja'] === 'luar_kantor'): ?><?= badge('luar_kantor') ?><?php endif; ?><?php if ($r['lembur']): ?><?= badge('lembur') ?><?php endif; ?></div></td>
           </tr>
         <?php endforeach; ?>
         </tbody>
       </table>
     </div>
+    <?php endif; ?>
+  </section>
+
+  <section class="rounded-2xl bg-white p-5 shadow-sm lg:col-span-2">
+    <h2 class="font-display text-lg font-bold">Izin dan sakit hari ini</h2>
+    <?php if (!$tidakHadir): ?><p class="mt-2 text-sm text-river-700">Tidak ada catatan izin atau sakit.</p><?php else: ?>
+      <div class="mt-3 grid gap-3 md:grid-cols-2"><?php foreach ($tidakHadir as $r): ?>
+        <div class="rounded-xl bg-river-50 p-3"><div class="flex justify-between gap-2"><b><?= e($r['nama']) ?></b><?= badge($r['jenis']) ?></div><p class="mt-1 text-sm text-river-700"><?= e($r['keterangan']) ?></p></div>
+      <?php endforeach; ?></div>
     <?php endif; ?>
   </section>
 

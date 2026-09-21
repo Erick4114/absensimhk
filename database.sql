@@ -1,7 +1,7 @@
 -- Absensi Koperasi Mahakam Jaya
 -- Import lewat phpMyAdmin / HeidiSQL (Laragon) atau: mysql -u root < database.sql
-CREATE DATABASE IF NOT EXISTS absensi_mahakam CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE absensi_mahakam;
+CREATE DATABASE IF NOT EXISTS absensimhk CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE absensimhk;
 
 CREATE TABLE IF NOT EXISTS users (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -31,9 +31,28 @@ CREATE TABLE IF NOT EXISTS absensi (
   akurasi_pulang SMALLINT UNSIGNED NULL,
   jarak_pulang INT UNSIGNED NULL,
   status ENUM('hadir','terlambat') NOT NULL DEFAULT 'hadir',
+  jenis_kerja ENUM('kantor','luar_kantor') NOT NULL DEFAULT 'kantor',
+  alasan_luar_kantor VARCHAR(255) NULL,
+  jenis_pulang ENUM('kantor','luar_kantor') NULL,
+  alasan_luar_pulang VARCHAR(255) NULL,
+  lembur TINYINT(1) NOT NULL DEFAULT 0,
+  keterangan_lembur VARCHAR(500) NULL,
+  foto_lembur VARCHAR(255) NULL,
   UNIQUE KEY uq_user_tanggal (user_id, tanggal),
   KEY idx_tanggal (tanggal),
   CONSTRAINT fk_absensi_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS ketidakhadiran (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NOT NULL,
+  tanggal DATE NOT NULL,
+  jenis ENUM('izin','sakit') NOT NULL,
+  keterangan VARCHAR(500) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_ketidakhadiran_user_tanggal (user_id, tanggal),
+  KEY idx_ketidakhadiran_tanggal (tanggal),
+  CONSTRAINT fk_ketidakhadiran_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS pengaturan (

@@ -15,19 +15,29 @@ if ($uid) { $where .= ' AND a.user_id = ?'; $args[] = $uid; }
 
 // ---- Ekspor CSV ----
 if (isset($_GET['export'])) {
+    // Jangan biarkan notice/warning PHP mencemari isi berkas CSV.
+    ini_set('display_errors', '0');
     $st = $pdo->prepare("SELECT a.*, u.nip, u.nama FROM absensi a JOIN users u ON u.id=a.user_id WHERE $where ORDER BY a.tanggal, u.nama");
     $st->execute($args);
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="absensi_' . $dari . '_' . $sampai . '.csv"');
     $o = fopen('php://output', 'w');
     fwrite($o, "\xEF\xBB\xBF");
-    fputcsv($o, ['Tanggal', 'NIP', 'Nama', 'Jam masuk', 'Jam pulang', 'Status', 'Jarak masuk (m)', 'Lokasi masuk', 'Jarak pulang (m)', 'Lokasi pulang'], ';');
+    fputcsv($o, ['Tanggal', 'NIP', 'Nama', 'Jam masuk', 'Jam pulang', 'Status', 'Jenis kerja', 'Lembur', 'Keterangan', 'Jarak masuk (m)', 'Lokasi masuk', 'Jarak pulang (m)', 'Lokasi pulang'], ';', '"', '');
     foreach ($st as $r) {
         fputcsv($o, [
-            $r['tanggal'], $r['nip'], $r['nama'], jam($r['jam_masuk']), jam($r['jam_pulang']), $r['status'],
+            $r['tanggal'], $r['nip'], $r['nama'], jam($r['jam_masuk']), jam($r['jam_pulang']), $r['status'], $r['jenis_kerja'] . ($r['jenis_pulang'] ? ' / pulang: ' . $r['jenis_pulang'] : ''), $r['lembur'] ? 'Ya' : 'Tidak', $r['keterangan_lembur'] ?: ($r['alasan_luar_pulang'] ?: $r['alasan_luar_kantor']),
             $r['jarak_masuk'], $r['lat_masuk'] ? $r['lat_masuk'] . ',' . $r['lng_masuk'] : '',
             $r['jarak_pulang'], $r['lat_pulang'] ? $r['lat_pulang'] . ',' . $r['lng_pulang'] : '',
-        ], ';');
+        ], ';', '"', '');
+    }
+    $whereK = 'k.tanggal BETWEEN ? AND ?';
+    $argsK = [$dari, $sampai];
+    if ($uid) { $whereK .= ' AND k.user_id = ?'; $argsK[] = $uid; }
+    $st = $pdo->prepare("SELECT k.*, u.nip, u.nama FROM ketidakhadiran k JOIN users u ON u.id=k.user_id WHERE $whereK ORDER BY k.tanggal, u.nama");
+    $st->execute($argsK);
+    foreach ($st as $r) {
+        fputcsv($o, [$r['tanggal'], $r['nip'], $r['nama'], '', '', $r['jenis'], '', 'Tidak', $r['keterangan'], '', '', '', ''], ';', '"', '');
     }
     exit;
 }
@@ -43,6 +53,12 @@ $page = min($page, $pages);
 $st = $pdo->prepare("SELECT a.*, u.nama, u.nip FROM absensi a JOIN users u ON u.id=a.user_id WHERE $where ORDER BY a.tanggal DESC, a.jam_masuk DESC LIMIT $per OFFSET " . (($page - 1) * $per));
 $st->execute($args);
 $rows = $st->fetchAll();
+$whereTidakHadir = 'k.tanggal BETWEEN ? AND ?';
+$argsTidakHadir = [$dari, $sampai];
+if ($uid) { $whereTidakHadir .= ' AND k.user_id = ?'; $argsTidakHadir[] = $uid; }
+$st = $pdo->prepare("SELECT k.*, u.nama, u.nip FROM ketidakhadiran k JOIN users u ON u.id=k.user_id WHERE $whereTidakHadir ORDER BY k.tanggal DESC");
+$st->execute($argsTidakHadir);
+$ketidakhadiran = $st->fetchAll();
 $users = $pdo->query("SELECT id, nama FROM users WHERE role='karyawan' ORDER BY nama")->fetchAll();
 
 $title = 'Laporan'; $active = 'laporan';
@@ -96,7 +112,7 @@ function bukti(array $r, string $k): string
           <td class="px-3 py-3"><div class="font-semibold"><?= e($r['nama']) ?></div><div class="text-xs text-river-700"><?= e($r['nip']) ?></div></td>
           <td class="px-3 py-3"><?= bukti($r, 'masuk') ?></td>
           <td class="px-3 py-3"><?= bukti($r, 'pulang') ?></td>
-          <td class="px-3 py-3"><?= badge($r['status']) ?></td>
+          <td class="px-3 py-3"><div class="flex flex-wrap gap-1"><?= badge($r['status']) ?><?php if ($r['jenis_kerja'] === 'luar_kantor' || $r['jenis_pulang'] === 'luar_kantor'): ?><?= badge('luar_kantor') ?><?php endif; ?><?php if ($r['lembur']): ?><?= badge('lembur') ?><?php endif; ?></div><?php if ($r['alasan_luar_kantor']): ?><div class="mt-1 max-w-xs text-xs text-river-700">Masuk: <?= e($r['alasan_luar_kantor']) ?></div><?php endif; ?><?php if ($r['alasan_luar_pulang']): ?><div class="mt-1 max-w-xs text-xs text-river-700">Pulang: <?= e($r['alasan_luar_pulang']) ?></div><?php endif; ?><?php if ($r['keterangan_lembur']): ?><div class="mt-1 max-w-xs text-xs text-river-700">Lembur: <?= e($r['keterangan_lembur']) ?></div><?php endif; ?><?php if ($r['foto_lembur']): ?><a href="<?= e(url($r['foto_lembur'])) ?>" target="_blank" class="mt-1 block text-xs font-semibold text-river-600 hover:underline">Lihat lampiran lembur</a><?php endif; ?></td>
         </tr>
       <?php endforeach; ?>
       </tbody>
@@ -112,5 +128,13 @@ function bukti(array $r, string $k): string
     </div>
   <?php endif; ?>
   <?php endif; ?>
+</section>
+
+<section class="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm">
+  <div class="px-5 py-4"><h2 class="font-display text-lg font-bold">Izin dan sakit</h2></div>
+  <?php if (!$ketidakhadiran): ?><p class="px-5 pb-6 text-sm text-river-700">Tidak ada catatan pada rentang ini.</p><?php else: ?>
+  <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="bg-river-50 text-river-700"><tr><th class="px-5 py-2.5">Tanggal</th><th class="px-3 py-2.5">Karyawan</th><th class="px-3 py-2.5">Status</th><th class="px-3 py-2.5">Keterangan</th></tr></thead><tbody class="divide-y divide-river-50">
+  <?php foreach ($ketidakhadiran as $r): ?><tr><td class="px-5 py-3"><?= e(tgl_id($r['tanggal'], true, true)) ?></td><td class="px-3 py-3"><b><?= e($r['nama']) ?></b><div class="text-xs text-river-700"><?= e($r['nip']) ?></div></td><td class="px-3 py-3"><?= badge($r['jenis']) ?></td><td class="px-3 py-3"><?= e($r['keterangan']) ?></td></tr><?php endforeach; ?>
+  </tbody></table></div><?php endif; ?>
 </section>
 <?php require __DIR__ . '/../includes/admin_bottom.php'; ?>

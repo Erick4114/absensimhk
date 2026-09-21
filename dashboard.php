@@ -7,13 +7,18 @@ $hari = date('Y-m-d');
 $st = db()->prepare('SELECT * FROM absensi WHERE user_id = ? AND tanggal = ?');
 $st->execute([$user['id'], $hari]);
 $abs = $st->fetch() ?: null;
-$mode = !$abs ? 'masuk' : (!$abs['jam_pulang'] ? 'pulang' : 'selesai');
+$st = db()->prepare('SELECT * FROM ketidakhadiran WHERE user_id = ? AND tanggal = ?');
+$st->execute([$user['id'], $hari]);
+$tidakHadir = $st->fetch() ?: null;
+$mode = $tidakHadir ? 'selesai' : (!$abs ? 'masuk' : (!$abs['jam_pulang'] ? 'pulang' : 'selesai'));
 
 $h = (int)date('G');
 $salam = $h < 11 ? 'Selamat pagi' : ($h < 15 ? 'Selamat siang' : ($h < 18 ? 'Selamat sore' : 'Selamat malam'));
 
 $cfg = [
     'mode' => $mode,
+    'jenisKerja' => $abs['jenis_kerja'] ?? 'kantor',
+    'alasanLuar' => $abs['alasan_luar_kantor'] ?? '',
     'nama' => $user['nama'],
     'lat' => (float)$p['lat'],
     'lng' => (float)$p['lng'],
@@ -81,6 +86,12 @@ require __DIR__ . '/includes/head.php';
   </section>
 
   <!-- Status hari ini -->
+  <?php if ($tidakHadir): ?>
+    <section class="rounded-2xl bg-white p-5 shadow-sm">
+      <div class="flex items-center justify-between gap-3"><div class="font-display text-lg font-bold">Tidak hadir hari ini</div><?= badge($tidakHadir['jenis']) ?></div>
+      <p class="mt-2 text-sm text-river-700"><?= e($tidakHadir['keterangan']) ?></p>
+    </section>
+  <?php endif; ?>
   <section class="grid grid-cols-2 gap-3">
     <div class="rounded-2xl bg-white p-4 shadow-sm">
       <div class="text-sm text-river-700">Masuk</div>
@@ -102,6 +113,19 @@ require __DIR__ . '/includes/head.php';
         <div><div class="font-display text-lg font-bold">Absensi hari ini selesai</div><div class="text-sm text-river-100">Sampai jumpa besok.</div></div>
       </div>
     <?php else: ?>
+      <div class="mb-3 rounded-2xl bg-white p-4 shadow-sm">
+        <label for="jenis-kerja" class="block text-sm font-semibold">Lokasi absen <?= $mode === 'masuk' ? 'masuk' : 'pulang' ?></label>
+        <select id="jenis-kerja" class="mt-2 w-full rounded-xl border border-river-200 bg-white px-3 py-3">
+          <option value="kantor">Di kantor</option><option value="luar_kantor">Di luar wilayah kantor</option>
+        </select>
+        <textarea id="alasan-luar" maxlength="255" rows="2" class="mt-2 hidden w-full rounded-xl border border-river-200 px-3 py-2 text-sm" placeholder="Tuliskan lokasi dan alasan tugas di luar kantor"></textarea>
+        <label class="mt-3 flex items-center gap-2 text-sm"><input id="lembur" type="checkbox" <?= !empty($abs['lembur']) ? 'checked' : '' ?> class="h-4 w-4 rounded border-river-300"> Bekerja lembur hari ini</label>
+        <div id="detail-lembur" class="<?= empty($abs['lembur']) ? 'hidden ' : '' ?>mt-3 space-y-2">
+          <textarea id="keterangan-lembur" maxlength="500" rows="2" class="w-full rounded-xl border border-river-200 px-3 py-2 text-sm" placeholder="Keterangan lembur (opsional)"><?= e($abs['keterangan_lembur'] ?? '') ?></textarea>
+          <label class="block text-xs font-semibold text-river-700">Foto lampiran lembur (opsional, JPG/PNG maks. 3 MB)</label>
+          <input id="foto-lembur" type="file" accept="image/jpeg,image/png" class="block w-full text-sm text-river-700 file:mr-3 file:rounded-lg file:border-0 file:bg-river-100 file:px-3 file:py-2 file:font-semibold file:text-river-700">
+        </div>
+      </div>
       <button id="btn-absen" type="button" disabled
         class="relative isolate flex w-full items-center justify-center gap-3 rounded-2xl bg-gold-500 px-5 py-5 font-display text-xl font-bold text-river-950 shadow-lg shadow-gold-500/30 transition active:scale-[.99] disabled:cursor-not-allowed disabled:bg-river-100 disabled:text-river-700/60 disabled:shadow-none">
         <?= icon('camera', 'w-6 h-6') ?><?= $mode === 'masuk' ? 'Absen masuk' : 'Absen pulang' ?>
@@ -112,6 +136,20 @@ require __DIR__ . '/includes/head.php';
       </ul>
     <?php endif; ?>
   </section>
+
+  <?php if (!$abs && !$tidakHadir): ?>
+  <section class="rounded-2xl bg-white p-4 shadow-sm">
+    <div class="font-display font-bold">Tidak bisa masuk kerja?</div>
+    <p class="mt-1 text-sm text-river-700">Catat izin atau sakit untuk hari ini.</p>
+    <form id="form-ketidakhadiran" class="mt-3 space-y-3">
+      <?= csrf_field() ?>
+      <select name="jenis" required class="w-full rounded-xl border border-river-200 bg-white px-3 py-3"><option value="izin">Izin</option><option value="sakit">Sakit</option></select>
+      <textarea name="keterangan" minlength="5" maxlength="500" required rows="3" class="w-full rounded-xl border border-river-200 px-3 py-2 text-sm" placeholder="Tuliskan alasan atau keterangan"></textarea>
+      <button class="w-full rounded-xl border border-river-600 px-4 py-2.5 font-semibold text-river-700">Simpan izin/sakit</button>
+      <p id="ketidakhadiran-msg" class="hidden text-sm" role="alert"></p>
+    </form>
+  </section>
+  <?php endif; ?>
 </main>
 
 <!-- Navigasi bawah -->
@@ -157,6 +195,6 @@ require __DIR__ . '/includes/head.php';
 <canvas id="cam-canvas" class="hidden"></canvas>
 
 <script>window.ABSEN = <?= json_encode($cfg, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG) ?>;</script>
-<script src="<?= url('assets/js/absen.js') ?>?v=1"></script>
+<script src="<?= url('assets/js/absen.js') ?>?v=2"></script>
 </body>
 </html>

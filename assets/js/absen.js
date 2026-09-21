@@ -25,6 +25,8 @@
   }
 
   const chip = $('loc-chip'), chipText = $('loc-text'), sub = $('loc-sub'), btn = $('btn-absen'), chk = $('chk-loc');
+  const jenisKerja = $('jenis-kerja'), alasanLuar = $('alasan-luar'), lembur = $('lembur');
+  const detailLembur = $('detail-lembur'), keteranganLembur = $('keterangan-lembur'), fotoLembur = $('foto-lembur');
   const tones = {
     ok:   'bg-river-100 text-river-800',
     bad:  'bg-clay-100 text-clay-700',
@@ -76,14 +78,28 @@
     } else if (inside) {
       tone('ok'); chipText.textContent = `Di dalam area kantor · ${dm} m`;
       sub.textContent = `Akurasi lokasi ±${Math.round(pos.acc)} m`;
+    } else if (jenisKerja && jenisKerja.value === 'luar_kantor') {
+      tone('ok'); chipText.textContent = `Lokasi luar kantor · ${dm} m`;
+      sub.textContent = `GPS terverifikasi (akurasi ±${Math.round(pos.acc)} m). Isi alasan tugas.`;
     } else {
       tone('bad'); chipText.textContent = `Di luar area · ${dm} m dari kantor`;
       sub.textContent = `Batas absen ${C.radius} m. Dekati kantor untuk absen.`;
     }
-    const ok = inside && okAcc;
+    const luarKantor = jenisKerja && jenisKerja.value === 'luar_kantor';
+    const alasanOk = !luarKantor || (alasanLuar && alasanLuar.value.trim().length >= 5);
+    const ok = okAcc && (inside || luarKantor) && alasanOk;
     setCheck(ok);
     setBtn(ok && C.mode !== 'selesai');
   }
+
+  if (jenisKerja) jenisKerja.addEventListener('change', () => {
+    const luar = jenisKerja.value === 'luar_kantor';
+    alasanLuar.classList.toggle('hidden', !luar);
+    chk.lastChild.textContent = luar ? ' Lokasi GPS berhasil diverifikasi' : ' Lokasi berada di area kantor';
+    evaluate();
+  });
+  if (alasanLuar) alasanLuar.addEventListener('input', evaluate);
+  if (lembur) lembur.addEventListener('change', () => detailLembur.classList.toggle('hidden', !lembur.checked));
 
   function onPos(p) {
     pos = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() };
@@ -185,10 +201,28 @@
     const sendBtn = $('btn-send');
     sendBtn.disabled = true; sendBtn.textContent = 'Mengirim…'; camError('');
     try {
+      let lampiranLembur = '';
+      if (lembur && lembur.checked && fotoLembur && fotoLembur.files[0]) {
+        const file = fotoLembur.files[0];
+        if (!['image/jpeg', 'image/png'].includes(file.type) || file.size > 3 * 1024 * 1024) throw new Error('Foto lampiran harus JPG/PNG dan maksimal 3 MB.');
+        lampiranLembur = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('Foto lampiran gagal dibaca.'));
+          reader.readAsDataURL(file);
+        });
+      }
       const res = await fetch(C.api, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': C.csrf },
-        body: JSON.stringify({ type: C.mode, lat: snap.lat, lng: snap.lng, akurasi: snap.acc, foto }),
+        body: JSON.stringify({
+          type: C.mode, lat: snap.lat, lng: snap.lng, akurasi: snap.acc, foto,
+          jenis_kerja: jenisKerja ? jenisKerja.value : C.jenisKerja,
+          alasan_luar_kantor: alasanLuar ? alasanLuar.value.trim() : C.alasanLuar,
+          lembur: lembur ? lembur.checked : false,
+          keterangan_lembur: keteranganLembur ? keteranganLembur.value.trim() : '',
+          foto_lembur: lampiranLembur,
+        }),
       });
       const j = await res.json().catch(() => ({ ok: false, message: 'Respons server tidak valid.' }));
       if (!j.ok) throw new Error(j.message);
@@ -209,4 +243,22 @@
   $('btn-shoot').addEventListener('click', capture);
   $('btn-retake').addEventListener('click', () => { foto = null; camError(''); showReview(false); });
   $('btn-send').addEventListener('click', send);
+
+  const formTidakHadir = $('form-ketidakhadiran');
+  if (formTidakHadir) formTidakHadir.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const submit = formTidakHadir.querySelector('button');
+    const msg = $('ketidakhadiran-msg');
+    submit.disabled = true; msg.classList.add('hidden');
+    try {
+      const res = await fetch('api/ketidakhadiran.php', { method: 'POST', body: new FormData(formTidakHadir) });
+      const data = await res.json().catch(() => ({ ok: false, message: 'Respons server tidak valid.' }));
+      if (!data.ok) throw new Error(data.message);
+      msg.textContent = data.message; msg.className = 'text-sm font-semibold text-river-600';
+      setTimeout(() => location.reload(), 1000);
+    } catch (error) {
+      msg.textContent = error.message || 'Gagal menyimpan data.';
+      msg.className = 'text-sm font-semibold text-clay-700'; submit.disabled = false;
+    }
+  });
 })();

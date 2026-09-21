@@ -113,9 +113,15 @@ function inisial(string $nama): string
 
 function badge(string $status): string
 {
-    return $status === 'terlambat'
-        ? '<span class="inline-flex items-center gap-1 rounded-full bg-gold-100 px-2.5 py-1 text-xs font-semibold text-gold-800">Terlambat</span>'
-        : '<span class="inline-flex items-center gap-1 rounded-full bg-river-100 px-2.5 py-1 text-xs font-semibold text-river-800">Tepat waktu</span>';
+    $map = [
+        'terlambat' => ['bg-gold-100 text-gold-800', 'Terlambat'],
+        'izin' => ['bg-gold-100 text-gold-800', 'Izin'],
+        'sakit' => ['bg-clay-100 text-clay-700', 'Sakit'],
+        'luar_kantor' => ['bg-river-100 text-river-800', 'Luar kantor'],
+        'lembur' => ['bg-river-900 text-white', 'Lembur'],
+    ];
+    [$class, $label] = $map[$status] ?? ['bg-river-100 text-river-800', 'Tepat waktu'];
+    return '<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ' . $class . '">' . $label . '</span>';
 }
 
 function icon(string $name, string $cls = 'w-5 h-5'): string
